@@ -11,6 +11,9 @@ import live_main
 import tensorflow as tf
 
 from timeit import default_timer as timer
+import numpy as np
+
+import pulse_image
 
 
 main_args = live_main.parse_args()
@@ -31,37 +34,64 @@ ap.add_argument("-d", "--display", type=int, default=-1,
 	help="Whether or not frames should be displayed")
 args = vars(ap.parse_args())
 
+pulseimg1 = None
+pulseimg2 = None
+pulseidx1 = 0
+pulseidx2 = 0
+pulsewidth = 500
 
 tfconfig, config = live_main.init(main_args)
 with tf.Session(config=tfconfig) as sess:
     model = live_main.init_session(main_args, sess, config)
     # grab a pointer to the video stream and initialize the FPS counter
     print("[INFO] sampling frames from webcam...")
-    vs = WebcamVideoStream(src=0).start()
+    #vs = WebcamVideoStream(src=0).start()
+    stream = cv2.VideoCapture(0)
     #fps = FPS().start()
     lastframe = None
 
     # loop over some frames
     while True: #fps._numFrames < args["num_frames"]:
-        # grab the frame from the stream and resize it to have a maximum
-        # width of 400 pixels
         start = timer()
 
-        frame = vs.read()
-        frame = imutils.resize(frame, width=400)
+        (grabbed, frame) = stream.read()
+        frame2 = imutils.resize(frame, width=203)  # 400, 203, 100
+
+        if pulseimg1 is None:
+            pulseimg1 = np.zeros((frame2.shape[1], pulsewidth, 3), np.uint8)
+        if pulseimg2 is None:
+            pulseimg2 = np.zeros((frame2.shape[0], pulsewidth, 3), np.uint8)
+
+        #print(frame2.shape)
         # check to see if the frame should be displayed to our screen
         if lastframe is not None:
             start1 = timer()
-            newframe = model.run_live_process(lastframe, frame, main_args.amplification_factor)
+            newframe = model.run_live_process(lastframe, frame2, main_args.amplification_factor)
             end1 = timer()
             print("inference:",end1-start1)
-            #
+
+            #pulse
+
+            w2 = int(newframe.shape[1]/2)
+            h2 = int(newframe.shape[0]/2)
+            pulseidx1 = pulse_image.append_pulse(pulseimg1, newframe, 
+                [0,frame2.shape[1]], 
+                [h2, h2+1], pulseidx1)
+            pulseidx1 = pulseidx1+1
+            pulseidx2 = pulse_image.append_pulse(pulseimg2, newframe, 
+                [w2, w2+1], 
+                [0,frame2.shape[0]], pulseidx2)
+            pulseidx2 = pulseidx2+1
+
+            newframe = imutils.resize(newframe, width=frame.shape[1])
             if True :#args["display"] > 0:
                 cv2.imshow("Frame", frame)
                 cv2.imshow("MotionMag Frame", newframe)
+                cv2.imshow("Pulse 1 Hor Line", pulseimg1)
+                cv2.imshow("Pulse 2 Ver Line", pulseimg2)
                 
         # update the FPS counter
-        lastframe = frame
+        lastframe = frame2
         #fps.update()
         end = timer()
         print(end - start)
@@ -69,37 +99,11 @@ with tf.Session(config=tfconfig) as sess:
         key = cv2.waitKey(1)
         if key != -1:
             break 
-    # # stop the timer and display FPS information
-    # fps.stop()
-#print("[INFO] elasped time: {:.2f}".format(fps.elapsed()))
-#print("[INFO] approx. FPS: {:.2f}".format(fps.fps()))
-# do a bit of cleanup
+    if pulseimg1 is not None:
+        cv2.imwrite("pulse1.png", pulseimg1)
+    if pulseimg2 is not None:
+        cv2.imwrite("pulse2.png", pulseimg2)
+    stream.release()
+    cv2.destroyAllWindows()
+    #vs.stop()
 
-cv2.destroyAllWindows()
-vs.stop()
-
-
-# # created a *threaded* video stream, allow the camera sensor to warmup,
-# # and start the FPS counter
-# print("[INFO] sampling THREADED frames from webcam...")
-# vs = WebcamVideoStream(src=0).start()
-# fps = FPS().start()
-# # loop over some frames...this time using the threaded stream
-# while fps._numFrames < args["num_frames"]:
-# 	# grab the frame from the threaded video stream and resize it
-# 	# to have a maximum width of 400 pixels
-# 	frame = vs.read()
-# 	frame = imutils.resize(frame, width=400)
-# 	# check to see if the frame should be displayed to our screen
-# 	if args["display"] > 0:
-# 		cv2.imshow("Frame", frame)
-# 		key = cv2.waitKey(1) & 0xFF
-# 	# update the FPS counter
-# 	fps.update()
-# # stop the timer and display FPS information
-# fps.stop()
-# print("[INFO] elasped time: {:.2f}".format(fps.elapsed()))
-# print("[INFO] approx. FPS: {:.2f}".format(fps.fps()))
-# # do a bit of cleanup
-# cv2.destroyAllWindows()
-# vs.stop()    

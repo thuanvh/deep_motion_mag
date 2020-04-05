@@ -19,8 +19,10 @@ from utils import load_train_data, mkdir, imread, save_images, load_train_data_i
 from preprocessor import preprocess_image, preproc_color
 from data_loader import read_and_decode_3frames
 
+from timeit import default_timer as timer
+
 # Change here if you use ffmpeg.
-DEFAULT_VIDEO_CONVERTER = 'avconv'
+DEFAULT_VIDEO_CONVERTER = 'ffmpeg'
 
 
 class MagNet3FramesLive(object):
@@ -240,14 +242,21 @@ class MagNet3FramesLive(object):
             frameB: path to second frame
             amplification_factor: float for amplification factor
         """
+        start = timer()
         in_frames = [load_train_data_image([frameA, frameB, frameB],
                      gray_scale=self.n_channels==1, is_testing=True)]
         in_frames = np.array(in_frames).astype(np.float32)
+        stop = timer()
+        print("convert frames:", stop - start)
 
+        start = timer()
         out_amp = self.sess.run(self.test_output,
                                 feed_dict={self.test_input: in_frames,
                                            self.test_amplification_factor:
                                            [amplification_factor]})
+        stop = timer()
+        print("Session run:", stop - start)
+
         return out_amp
 
     def run(self,
@@ -343,22 +352,7 @@ class MagNet3FramesLive(object):
         out_amp = self.inference_live(prev_frame, frame, amplification_factor)
         img = convert_image_cv2(out_amp, [1, 1])
         return img
-        # prev_frame = first_frame
-        # desc = vid_name if len(vid_name) < 10 else vid_name[:10]
-        # for frame in tqdm(vid_frames, desc=desc):
-        #     file_name = os.path.basename(frame)
-        #     out_amp = self.inference(prev_frame, frame, amplification_factor)
-
-        #     im_path = os.path.join(out_dir, file_name)
-        #     save_images(out_amp, [1, 1], im_path)
-        #     if velocity_mag:
-        #         prev_frame = frame
-
-        # # Try to combine it into a video
-        # call([DEFAULT_VIDEO_CONVERTER, '-y', '-f', 'image2', '-r', '30', '-i',
-        #       os.path.join(out_dir, '%06d.png'), '-c:v', 'libx264',
-        #       os.path.join(out_dir, vid_name + '.mp4')]
-        #     )
+        
 
 
     # Temporal Operations
@@ -405,6 +399,189 @@ class MagNet3FramesLive(object):
         self.saver = tf.train.Saver()
 
     def run_temporal(self,
+                     checkpoint_dir,
+                     vid_dir,
+                     frame_ext,
+                     out_dir,
+                     amplification_factor,
+                     fl, fh, fs,
+                     n_filter_tap,
+                     filter_type):
+        """Magnify video with a temporal filter.
+
+        Args:
+            checkpoint_dir: checkpoint directory.
+            vid_dir: directory containing video frames videos are processed
+                in sorted order.
+            out_dir: directory to place output frames and resulting video.
+            amplification_factor: the amplification factor,
+                with 0 being no change.
+            fl: low cutoff frequency.
+            fh: high cutoff frequency.
+            fs: sampling rate of the video.
+            n_filter_tap: number of filter tap to use.
+            filter_type: Type of filter to use. Can be one of "fir",
+                "butter", or "differenceOfIIR". For "differenceOfIIR",
+                fl and fh specifies rl and rh coefficients as in Wadhwa et al.
+        """
+
+        nyq = fs / 2.0
+        if filter_type == 'fir':
+            filter_b = firwin(n_filter_tap, [fl, fh], nyq=nyq, pass_zero=False)
+            filter_a = []
+        elif filter_type == 'butter':
+            filter_b, filter_a = butter(n_filter_tap, [fl/nyq, fh/nyq],
+                                        btype='bandpass')
+            filter_a = filter_a[1:]
+        elif filter_type == 'differenceOfIIR':
+            # This is a copy of what Neal did. Number of taps are ignored.
+            # Treat fl and fh as rl and rh as in Wadhwa's code.
+            # Write down the difference of difference equation in Fourier
+            # domain to proof this:
+            filter_b = [fh - fl, fl - fh]
+            filter_a = [-1.0*(2.0 - fh - fl), (1.0 - fl) * (1.0 - fh)]
+        else:
+            raise ValueError('Filter type must be either '
+                             '["fir", "butter", "differenceOfIIR"] got ' + \
+                             filter_type)
+        head, tail = os.path.split(out_dir)
+        tail = tail + '_fl{}_fh{}_fs{}_n{}_{}'.format(fl, fh, fs,
+                                                      n_filter_tap,
+                                                      filter_type)
+        out_dir = os.path.join(head, tail)
+        vid_name = os.path.basename(out_dir)
+        # make folder
+        mkdir(out_dir)
+        vid_frames = sorted(glob(os.path.join(vid_dir, '*.' + frame_ext)))
+        first_frame = vid_frames[0]
+        im = imread(first_frame)
+        image_height, image_width = im.shape
+        if not self.is_graph_built:
+            self.image_width = image_width
+            self.image_height = image_height
+            # Figure out image dimension
+            self._build_IIR_filtering_graphs()
+            ginit_op = tf.global_variables_initializer()
+            linit_op = tf.local_variables_initializer()
+            self.sess.run([ginit_op, linit_op])
+
+            if self.load(checkpoint_dir):
+                print("[*] Load Success")
+            else:
+                raise RuntimeError('MagNet: Failed to load checkpoint file.')
+            self.is_graph_built = True
+        try:
+            i = int(self.ckpt_name.split('-')[-1])
+            print("Iteration number is {:d}".format(i))
+            vid_name = vid_name + '_' + str(i)
+        except:
+            print("Cannot get iteration number")
+
+        if len(filter_a) is not 0:
+            x_state = []
+            y_state = []
+
+            for frame in tqdm(vid_frames, desc='Applying IIR'):
+                file_name = os.path.basename(frame)
+                frame_no, _ = os.path.splitext(file_name)
+                frame_no = int(frame_no)
+                in_frames = [load_train_data([frame, frame, frame],
+                             gray_scale=self.n_channels==1, is_testing=True)]
+                in_frames = np.array(in_frames).astype(np.float32)
+
+                texture_enc, x = self.sess.run([self.texture_enc, self.shape_rep],
+                                               feed_dict={
+                                                   self.input_image:
+                                                   in_frames[:, :, :, :3],})
+                x_state.insert(0, x)
+                # set up initial condition.
+                while len(x_state) < len(filter_b):
+                    x_state.insert(0, x)
+                if len(x_state) > len(filter_b):
+                    x_state = x_state[:len(filter_b)]
+                y = np.zeros_like(x)
+                for i in range(len(x_state)):
+                    y += x_state[i] * filter_b[i]
+                for i in range(len(y_state)):
+                    y -= y_state[i] * filter_a[i]
+                # update y state
+                y_state.insert(0, y)
+                if len(y_state) > len(filter_a):
+                    y_state = y_state[:len(filter_a)]
+
+                out_amp = self.sess.run(self.output_image,
+                                        feed_dict={self.out_texture_enc:
+                                                     texture_enc,
+                                                   self.filtered_enc: y,
+                                                   self.ref_shape_enc: x,
+                                                   self.amplification_factor:
+                                                     [amplification_factor]})
+
+                im_path = os.path.join(out_dir, file_name)
+                out_amp = np.squeeze(out_amp)
+                out_amp = (127.5*(out_amp+1)).astype('uint8')
+                cv2.imwrite(im_path, cv2.cvtColor(out_amp,
+                                                  code=cv2.COLOR_RGB2BGR))
+        else:
+            # This does FIR in fourier domain. Equivalent to cyclic
+            # convolution.
+            x_state = None
+            for i, frame in tqdm(enumerate(vid_frames),
+                                 desc='Getting encoding'):
+                file_name = os.path.basename(frame)
+                in_frames = [load_train_data([frame, frame, frame],
+                                             gray_scale=self.n_channels==1, is_testing=True)]
+                in_frames = np.array(in_frames).astype(np.float32)
+
+                texture_enc, x = self.sess.run([self.texture_enc, self.shape_rep],
+                                               feed_dict={
+                                                   self.input_image:
+                                                      in_frames[:, :, :, :3],})
+                if x_state is None:
+                    x_state = np.zeros(x.shape + (len(vid_frames),),
+                                       dtype='float32')
+                x_state[:, :, :, :, i] = x
+
+            filter_fft = np.fft.fft(np.fft.ifftshift(filter_b),
+                                    n=x_state.shape[-1])
+            # Filtering
+            for i in trange(x_state.shape[1], desc="Applying FIR filter"):
+                x_fft = np.fft.fft(x_state[:, i, :, :], axis=-1)
+                x_fft *= filter_fft[np.newaxis, np.newaxis, np.newaxis, :]
+                x_state[:, i, :, :] = np.fft.ifft(x_fft)
+
+            for i, frame in tqdm(enumerate(vid_frames), desc='Decoding'):
+                file_name = os.path.basename(frame)
+                frame_no, _ = os.path.splitext(file_name)
+                frame_no = int(frame_no)
+                in_frames = [load_train_data([frame, frame, frame],
+                                             gray_scale=self.n_channels==1, is_testing=True)]
+                in_frames = np.array(in_frames).astype(np.float32)
+                texture_enc, _ = self.sess.run([self.texture_enc, self.shape_rep],
+                                               feed_dict={
+                                                   self.input_image:
+                                                      in_frames[:, :, :, :3],
+                                                         })
+                out_amp = self.sess.run(self.output_image,
+                                        feed_dict={self.out_texture_enc: texture_enc,
+                                                   self.filtered_enc: x_state[:, :, :, :, i],
+                                                   self.ref_shape_enc: x,
+                                                   self.amplification_factor: [amplification_factor]})
+
+                im_path = os.path.join(out_dir, file_name)
+                out_amp = np.squeeze(out_amp)
+                out_amp = (127.5*(out_amp+1)).astype('uint8')
+                cv2.imwrite(im_path, cv2.cvtColor(out_amp,
+                                                  code=cv2.COLOR_RGB2BGR))
+            del x_state
+
+        # Try to combine it into a video
+        call([DEFAULT_VIDEO_CONVERTER, '-y', '-f', 'image2', '-r', '30', '-i',
+              os.path.join(out_dir, '%06d.png'), '-c:v', 'libx264',
+              os.path.join(out_dir, vid_name + '.mp4')]
+            )
+
+    def run_temporal_live(self,
                      checkpoint_dir,
                      vid_dir,
                      frame_ext,

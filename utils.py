@@ -57,6 +57,23 @@ def load_train_data(image_path, gray_scale=True, is_testing=False):
     img_AB_out = np.concatenate((img_A, img_B, img_Out), axis=2)
     return img_AB_out
 
+def load_train_data_image(image_list, gray_scale=True, is_testing=False):
+    img_A = image_list[0] #imread(image_path[0], gray_scale)
+    img_B = image_list[1] #imread(image_path[1], gray_scale)
+    img_Out = image_list[2] #imread(image_path[2], gray_scale)
+    if not is_testing:
+        if np.random.random() > 0.5:
+            img_A = np.fliplr(img_A)
+            img_B = np.fliplr(img_B)
+            img_Out = np.fliplr(img_Out)
+
+    img_A = img_A/127.5 - 1.
+    img_B = img_B/127.5 - 1.
+    img_Out = img_Out/127.5 - 1.
+    img_A, img_B, img_Out = np.atleast_3d(img_A, img_B, img_Out)
+    img_AB_out = np.concatenate((img_A, img_B, img_Out), axis=2)
+    return img_AB_out
+
 
 def get_image(image_path,
               image_size,
@@ -101,6 +118,14 @@ def imsave(images, size, path):
         im = im * 255
         im = im.astype('uint8')
     return cv2.imwrite(path, cv2.cvtColor(im, cv2.COLOR_RGB2BGR))
+
+def convert_image_cv2(images, size):
+    images = inverse_transform(images)
+    im = merge(images, size)
+    if issubclass(im.dtype.type, np.floating):
+        im = im * 255
+        im = im.astype('uint8')
+    return cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
 
 
 def center_crop(x, crop_h, crop_w,

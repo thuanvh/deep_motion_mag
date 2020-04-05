@@ -222,7 +222,7 @@ class MagNet3FramesLive(object):
             frameB: path to second frame
             amplification_factor: float for amplification factor
         """
-        in_frames = [load_train_data_image([frameA, frameB, frameB],
+        in_frames = [load_train_data([frameA, frameB, frameB],
                      gray_scale=self.n_channels==1, is_testing=True)]
         in_frames = np.array(in_frames).astype(np.float32)
 
@@ -240,7 +240,7 @@ class MagNet3FramesLive(object):
             frameB: path to second frame
             amplification_factor: float for amplification factor
         """
-        in_frames = [load_train_data([frameA, frameB, frameB],
+        in_frames = [load_train_data_image([frameA, frameB, frameB],
                      gray_scale=self.n_channels==1, is_testing=True)]
         in_frames = np.array(in_frames).astype(np.float32)
 
@@ -340,7 +340,7 @@ class MagNet3FramesLive(object):
             print("Running in Dynamic mode")
 
     def run_live_process(self, prev_frame, frame, amplification_factor):
-        out_amp = self.inference(prev_frame, frame, amplification_factor)
+        out_amp = self.inference_live(prev_frame, frame, amplification_factor)
         img = convert_image_cv2(out_amp, [1, 1])
         return img
         # prev_frame = first_frame

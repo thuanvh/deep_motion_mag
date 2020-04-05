@@ -125,8 +125,8 @@ def convert_image_cv2(images, size):
     if issubclass(im.dtype.type, np.floating):
         im = im * 255
         im = im.astype('uint8')
-    return cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-
+    #return cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+    return im
 
 def center_crop(x, crop_h, crop_w,
                 resize_h=64, resize_w=64):

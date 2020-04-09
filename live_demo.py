@@ -16,7 +16,7 @@ import numpy as np
 import pulse_image
 
 
-main_args = live_main.parse_args()
+main_args = live_main.parse_args([])
 main_args.phase='run'
 main_args.vid_dir='data/vids/baby' 
 main_args.out_dir='data/output/baby'
@@ -32,7 +32,10 @@ ap.add_argument("-n", "--num-frames", type=int, default=100,
 	help="# of frames to loop over for FPS test")
 ap.add_argument("-d", "--display", type=int, default=-1,
 	help="Whether or not frames should be displayed")
-args = vars(ap.parse_args())
+ap.add_argument("-video", dest="video", type=str, default="", help="Video file, empty if use camera")
+
+ap.add_argument("-output", dest="output", type=str, default="", help="Output folder")
+args = ap.parse_args()
 
 pulseimg1 = None
 pulseimg2 = None
@@ -46,16 +49,28 @@ with tf.Session(config=tfconfig) as sess:
     # grab a pointer to the video stream and initialize the FPS counter
     print("[INFO] sampling frames from webcam...")
     #vs = WebcamVideoStream(src=0).start()
-    stream = cv2.VideoCapture(0)
+    print(args)
+    if args.video != "" :
+        stream = cv2.VideoCapture(args.video)
+    else:
+        stream = cv2.VideoCapture(0)
     #fps = FPS().start()
     lastframe = None
-
+    frame_number = 9
+    index = 1
     # loop over some frames
-    while True: #fps._numFrames < args["num_frames"]:
+    while stream.isOpened() : #True: #fps._numFrames < args["num_frames"]:
         start = timer()
 
         (grabbed, frame) = stream.read()
+        stream.set(1, frame_number * index - 1)
+        index = index + 1
+
+        if not grabbed :
+            break 
         frame2 = imutils.resize(frame, width=203)  # 400, 203, 100
+        #frame2 = imutils.resize(frame, width=100)
+        #frame2 = frame
 
         if pulseimg1 is None:
             pulseimg1 = np.zeros((frame2.shape[1], pulsewidth, 3), np.uint8)
@@ -72,8 +87,8 @@ with tf.Session(config=tfconfig) as sess:
 
             #pulse
 
-            w2 = int(newframe.shape[1]/2)
-            h2 = int(newframe.shape[0]/2)
+            w2 = int(newframe.shape[1]/2 * 0.5)
+            h2 = int(newframe.shape[0]/2 * 1.5)
             pulseidx1 = pulse_image.append_pulse(pulseimg1, newframe, 
                 [0,frame2.shape[1]], 
                 [h2, h2+1], pulseidx1)

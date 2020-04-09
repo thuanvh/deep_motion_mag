@@ -7,7 +7,7 @@ from configobj import ConfigObj
 from validate import Validator
 from live_magnet import MagNet3FramesLive
 
-def parse_args():
+def parse_args(args):
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--phase', dest='phase', default='train',
                         help='train, test, run, interactive')
@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument('--filter_type', dest='filter_type', type=str,
                         help='Type of filter to use, must be Butter or FIR.')
 
-    arguments = parser.parse_args()
+    arguments = parser.parse_args(args)
     return arguments
 
 def init(args):

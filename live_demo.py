@@ -43,6 +43,11 @@ pulseidx1 = 0
 pulseidx2 = 0
 pulsewidth = 500
 
+# Load the cascade
+face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+
+x1 = None
+
 tfconfig, config = live_main.init(main_args)
 with tf.Session(config=tfconfig) as sess:
     model = live_main.init_session(main_args, sess, config)
@@ -50,6 +55,7 @@ with tf.Session(config=tfconfig) as sess:
     print("[INFO] sampling frames from webcam...")
     #vs = WebcamVideoStream(src=0).start()
     print(args)
+    is_live = args.video == ""
     if args.video != "" :
         stream = cv2.VideoCapture(args.video)
     else:
@@ -66,12 +72,40 @@ with tf.Session(config=tfconfig) as sess:
         start = timer()
 
         (grabbed, frame) = stream.read()
-        stream.set(1, frame_number * index - 1)
-        index = index + 1
+        if not is_live:
+            stream.set(1, frame_number * index - 1)
+            index = index + 1
 
         if not grabbed :
-            break 
-        frame2 = imutils.resize(frame, width=203)  # 400, 203, 100
+            break
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Detect the faces
+        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+        # Draw the rectangle around each face
+        #for (x, y, w, h) in faces:
+        #    cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
+        if len(faces) > 0 :
+            (x, y, w, h) = faces[0]
+            #cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
+            x0 = x - w
+            x0 = 0 if x0 < 0 else x0
+            y0 = y + h
+            y0 = frame.shape[0]-1 if y0 >= frame.shape[0] else y0
+            w0 = 3 * w if x + 2 * w < frame.shape[1] else frame.shape[1] - x0
+            h0 = h
+            if x1 is None:
+                (x1,y1,w1,h1)=(x0,y0,w0,h0)
+        print(x1,y1,w1,h1)
+        if x1 is not None:
+            # if w1 > 203 :
+            #     frame2 = imutils.resize(frame[y1:y1+h1,x1:x1+w1,:], height=100, width=203)  # 400, 203, 100
+            # else:
+            #     frame2 = frame[y1:y1+h1,x1:x1:w1,:]
+            frame2 = imutils.resize(frame[y1:y1+h1,x1:x1+w1,:], height=100, width=200)  # 400, 203, 100
+        else:
+            frame2 = imutils.resize(frame, width= 203)
+            
         #frame2 = imutils.resize(frame, width=100)
         #frame2 = frame
 
@@ -89,11 +123,13 @@ with tf.Session(config=tfconfig) as sess:
             print("inference:",end1-start1)
 
             #pulse
-            if index > frame_interval * interval_count :
-                mark_interval = True
-                interval_count = interval_count + 1
-            else:
-                mark_interval = False
+            mark_interval = False
+            if not is_live:
+                if index > frame_interval * interval_count :
+                    mark_interval = True
+                    interval_count = interval_count + 1
+                else:
+                    mark_interval = False
 
             w2 = int(newframe.shape[1]/2 * 0.5)
             h2 = int(newframe.shape[0]/2 * 1.5)
@@ -108,6 +144,8 @@ with tf.Session(config=tfconfig) as sess:
 
             newframe = imutils.resize(newframe, width=frame.shape[1])
             if True :#args["display"] > 0:
+                cv2.rectangle(frame, (x1, y1), (x1+w1,y1+h1), (0,255,0))
+        
                 cv2.imshow("Frame", frame)
                 cv2.imshow("MotionMag Frame", newframe)
                 cv2.imshow("Pulse 1 Hor Line", pulseimg1)

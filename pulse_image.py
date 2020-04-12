@@ -43,7 +43,7 @@ def generatepulse(mypath, outputpath, xrange, yrange, itersave):
         i = i+1
     cv2.imwrite(join(outputpath, 'phase_total_{}_{}_{}_{}.png'.format(x[0],x[1],y[0],y[1])), m1)
 
-def append_pulse(image_pulse, img, xrange, yrange, t):
+def append_pulse(image_pulse, img, xrange, yrange, t, mark_interval):
     print(xrange,yrange)
     shape0 = img.shape
     x = xrange
@@ -69,6 +69,9 @@ def append_pulse(image_pulse, img, xrange, yrange, t):
     h = x[1] - x[0] if hor else y[1] - y[0]
     print(roi.shape, image_pulse.shape, h)
     image_pulse[0:h, i:i+1, :] = roi
+
+    if mark_interval :
+        image_pulse[0:h, i:i+1, :] = (255, 0, 0)
 
     return i
 

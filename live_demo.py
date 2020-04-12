@@ -56,8 +56,11 @@ with tf.Session(config=tfconfig) as sess:
         stream = cv2.VideoCapture(0)
     #fps = FPS().start()
     lastframe = None
-    frame_number = 9
+    frame_number = 6
+    mark_time = 10 * 25 # 10s * 25 frame/s
+    frame_interval = mark_time / frame_number
     index = 1
+    interval_count = 1
     # loop over some frames
     while stream.isOpened() : #True: #fps._numFrames < args["num_frames"]:
         start = timer()
@@ -86,16 +89,21 @@ with tf.Session(config=tfconfig) as sess:
             print("inference:",end1-start1)
 
             #pulse
+            if index > frame_interval * interval_count :
+                mark_interval = True
+                interval_count = interval_count + 1
+            else:
+                mark_interval = False
 
             w2 = int(newframe.shape[1]/2 * 0.5)
             h2 = int(newframe.shape[0]/2 * 1.5)
             pulseidx1 = pulse_image.append_pulse(pulseimg1, newframe, 
                 [0,frame2.shape[1]], 
-                [h2, h2+1], pulseidx1)
+                [h2, h2+1], pulseidx1, mark_interval)
             pulseidx1 = pulseidx1+1
             pulseidx2 = pulse_image.append_pulse(pulseimg2, newframe, 
                 [w2, w2+1], 
-                [0,frame2.shape[0]], pulseidx2)
+                [0,frame2.shape[0]], pulseidx2, mark_interval)
             pulseidx2 = pulseidx2+1
 
             newframe = imutils.resize(newframe, width=frame.shape[1])

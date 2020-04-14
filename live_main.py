@@ -68,7 +68,7 @@ def init(args):
     tfconfig.gpu_options.allow_growth = True
     return tfconfig, config
 
-def init_session(args, sess, config):
+def init_session(args, sess, config, live_video, shape):
     exp_name = config['exp_name']
     model = MagNet3FramesLive(sess, exp_name, config['architecture'])
     checkpoint = config['training']['checkpoint_dir']
@@ -78,7 +78,9 @@ def init_session(args, sess, config):
                 args.frame_ext,
                 args.out_dir,
                 args.amplification_factor,
-                args.velocity_mag)
+                args.velocity_mag,
+                live_video,
+                shape)
     return model
 
 # def main(args):

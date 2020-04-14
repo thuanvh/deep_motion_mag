@@ -318,7 +318,9 @@ class MagNet3FramesLive(object):
             frame_ext,
             out_dir,
             amplification_factor,
-            velocity_mag=False):
+            velocity_mag=False,
+            live_video=False,
+            live_shape=[0,0]):
         """Magnify a video in the two-frames mode.
 
         Args:
@@ -332,11 +334,14 @@ class MagNet3FramesLive(object):
         """
         vid_name = os.path.basename(out_dir)
         # make folder
-        mkdir(out_dir)
-        vid_frames = sorted(glob(os.path.join(vid_dir, '*.' + frame_ext)))
-        first_frame = vid_frames[0]
-        im = imread(first_frame)
-        image_height, image_width = im.shape
+        if live_video:
+            image_height, image_width = live_shape
+        else:
+            mkdir(out_dir)
+            vid_frames = sorted(glob(os.path.join(vid_dir, '*.' + frame_ext)))
+            first_frame = vid_frames[0]
+            im = imread(first_frame)
+            image_height, image_width = im.shape
         if not self.is_graph_built:
             self.setup_for_inference(checkpoint_dir, image_width, image_height)
         try:

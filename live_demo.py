@@ -14,13 +14,14 @@ from timeit import default_timer as timer
 import numpy as np
 
 import pulse_image
+import os
 
 
 main_args = live_main.parse_args([])
 main_args.phase='run'
 main_args.vid_dir='data/vids/baby' 
 main_args.out_dir='data/output/baby'
-main_args.amplification_factor=10
+main_args.amplification_factor=15
 # if [ "$DYNAMIC_MODE" = yes ] ; then
 #     FLAGS="$FLAGS"" --velocity_mag"
 # fi
@@ -50,16 +51,19 @@ x1 = None
 
 tfconfig, config = live_main.init(main_args)
 with tf.Session(config=tfconfig) as sess:
-    model = live_main.init_session(main_args, sess, config)
+    
     # grab a pointer to the video stream and initialize the FPS counter
     print("[INFO] sampling frames from webcam...")
     #vs = WebcamVideoStream(src=0).start()
     print(args)
     is_live = args.video == ""
+    video_name = os.path.basename(args.video) if args.video != "" else ""
     if args.video != "" :
         stream = cv2.VideoCapture(args.video)
     else:
         stream = cv2.VideoCapture(0)
+
+    model = live_main.init_session(main_args, sess, config, True, [100, 203])
     #fps = FPS().start()
     lastframe = None
     frame_number = 6
@@ -97,17 +101,23 @@ with tf.Session(config=tfconfig) as sess:
             if x1 is None:
                 (x1,y1,w1,h1)=(x0,y0,w0,h0)
         print(x1,y1,w1,h1)
-        if x1 is not None:
-            # if w1 > 203 :
-            #     frame2 = imutils.resize(frame[y1:y1+h1,x1:x1+w1,:], height=100, width=203)  # 400, 203, 100
-            # else:
-            #     frame2 = frame[y1:y1+h1,x1:x1:w1,:]
-            frame2 = imutils.resize(frame[y1:y1+h1,x1:x1+w1,:], height=100, width=200)  # 400, 203, 100
-        else:
-            frame2 = imutils.resize(frame, width= 203)
-            
-        #frame2 = imutils.resize(frame, width=100)
-        #frame2 = frame
+        if True:
+            if x1 is not None:
+                # if w1 > 203 :
+                #     frame2 = imutils.resize(frame[y1:y1+h1,x1:x1+w1,:], height=100, width=203)  # 400, 203, 100
+                # else:
+                #     frame2 = frame[y1:y1+h1,x1:x1:w1,:]
+                #frame2 = imutils.resize(frame[y1:y1+h1,x1:x1+w1,:], height=90, width=203)  # 400, 203, 100
+                frame2 = frame[y1:y1+h1,x1:x1+w1,:]
+                print(frame2.shape)
+                #frame2 = imutils.resize(frame2, height=24, width=100)
+                frame2 = cv2.resize(frame2, (160,40), interpolation=cv2.INTER_AREA) # 100,24 160,40
+                print(frame2.shape)
+            else:
+                frame2 = imutils.resize(frame, height=90, width= 203)
+        else:        
+            frame2 = imutils.resize(frame, width=100)
+            #frame2 = frame
 
         if pulseimg1 is None:
             pulseimg1 = np.zeros((frame2.shape[1], pulsewidth, 3), np.uint8)
@@ -133,23 +143,33 @@ with tf.Session(config=tfconfig) as sess:
 
             w2 = int(newframe.shape[1]/2 * 0.5)
             h2 = int(newframe.shape[0]/2 * 1.5)
-            pulseidx1 = pulse_image.append_pulse(pulseimg1, newframe, 
+            pulseidx1,pulseimg1 = pulse_image.append_pulse(pulseimg1, newframe, 
                 [0,frame2.shape[1]], 
-                [h2, h2+1], pulseidx1, mark_interval)
+                [h2, h2+1], pulseidx1, mark_interval, True)
             pulseidx1 = pulseidx1+1
-            pulseidx2 = pulse_image.append_pulse(pulseimg2, newframe, 
+            pulseidx2,pulseimg2 = pulse_image.append_pulse(pulseimg2, newframe, 
                 [w2, w2+1], 
-                [0,frame2.shape[0]], pulseidx2, mark_interval)
+                [0,frame2.shape[0]], pulseidx2, mark_interval, True)
             pulseidx2 = pulseidx2+1
 
+            old1=newframe.shape[1]
             newframe = imutils.resize(newframe, width=frame.shape[1])
+            scale = frame.shape[1] / old1
+
             if True :#args["display"] > 0:
                 cv2.rectangle(frame, (x1, y1), (x1+w1,y1+h1), (0,255,0))
-        
-                cv2.imshow("Frame", frame)
-                cv2.imshow("MotionMag Frame", newframe)
-                cv2.imshow("Pulse 1 Hor Line", pulseimg1)
-                cv2.imshow("Pulse 2 Ver Line", pulseimg2)
+                cv2.imshow(video_name + " Frame", frame)
+                
+                cv2.line(newframe,(0, int(h2 * scale)),(newframe.shape[1],int(h2*scale)), (0,255,0))
+                cv2.line(newframe,(int(w2 * scale), 0),(int(w2*scale),newframe.shape[0]), (255,0,0))
+                cv2.imshow(video_name + " MotionMag Frame", newframe)
+
+                # pulseimg1show = imutils.resize(pulseimg1, height=50)
+                # pulseimg2show = imutils.resize(pulseimg2, height=50)
+                # cv2.imshow("Pulse 1 Hor Line", pulseimg1show)
+                # cv2.imshow("Pulse 2 Ver Line", pulseimg2show)
+                cv2.imshow(video_name + " Pulse 1 Hor Line", pulseimg1)
+                cv2.imshow(video_name + " Pulse 2 Ver Line", pulseimg2)
                 
         # update the FPS counter
         lastframe = frame2
@@ -161,9 +181,11 @@ with tf.Session(config=tfconfig) as sess:
         if key != -1:
             break 
     if pulseimg1 is not None:
-        cv2.imwrite("pulse1.png", pulseimg1)
+        cv2.imwrite(video_name + "pulse1.png", pulseimg1)
     if pulseimg2 is not None:
-        cv2.imwrite("pulse2.png", pulseimg2)
+        cv2.imwrite(video_name + "pulse2.png", pulseimg2)
+    key = cv2.waitKey(0)
+    
     stream.release()
     cv2.destroyAllWindows()
     #vs.stop()

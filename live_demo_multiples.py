@@ -34,7 +34,8 @@ ap.add_argument("-n", "--num-frames", type=int, default=100,
 ap.add_argument("-d", "--display", type=int, default=-1,
 	help="Whether or not frames should be displayed")
 ap.add_argument("-video", dest="video", type=str, default="", help="Video file, empty if use camera")
-ap.add_argument("-magnitude", dest="mag", type=int, default=15, help="Magnitude file")
+ap.add_argument("-rect", dest="rect", type=str, default="", help="Video roi region")
+ap.add_argument("-mag", dest="mag", type=int, default=15, help="Magnitude file")
 
 ap.add_argument("-output", dest="output", type=str, default="", help="Output folder")
 args = ap.parse_args()
@@ -51,6 +52,10 @@ pulsewidth = 500
 face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
 x1 = None
+roi_rect = []
+if args.rect != "" :
+    roi_rect = [ int(s) for s in args.rect.split(',')]
+    print(roi_rect)
 
 tfconfig, config = live_main.init(main_args)
 with tf.Session(config=tfconfig) as sess:
@@ -74,17 +79,26 @@ with tf.Session(config=tfconfig) as sess:
     frame_interval = mark_time / frame_number
     index = 1
     interval_count = 1
+    personcount = 2
+
     # loop over some frames
     while stream.isOpened() : #True: #fps._numFrames < args["num_frames"]:
         start = timer()
 
-        (grabbed, frame) = stream.read()
+        (grabbed, rawframe) = stream.read()
         if not is_live:
             stream.set(1, frame_number * index - 1)
             index = index + 1
 
         if not grabbed :
             break
+        print(rawframe.shape)
+        if len(roi_rect) == 4:
+            frame = rawframe[roi_rect[1]:roi_rect[1] + roi_rect[3], roi_rect[0]:roi_rect[0] + roi_rect[2],:]
+        else:
+            frame = rawframe
+        print(frame.shape)
+        #exit()
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         # Detect the faces
@@ -103,7 +117,7 @@ with tf.Session(config=tfconfig) as sess:
             h0 = h
             if x1 is None:
                 (x1,y1,w1,h1)=(x0,y0,w0,h0)
-        print(x1,y1,w1,h1)
+                print(x1,y1,w1,h1)
         if True:
             if x1 is not None:
                 # if w1 > 203 :
